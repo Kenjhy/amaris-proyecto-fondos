@@ -1,0 +1,440 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation para despliegue de aplicación El Cliente - Fondos de Inversión'
+
+Parameters:
+  Stage:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - prod
+      - dev
+    Description: Entorno de despliegue
+  CreateDeploymentBucket:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Si es true, se creará el bucket de despliegue, si es false, se usará uno existente
+
+Conditions:
+  ShouldCreateDeploymentBucket: !Equals [!Ref CreateDeploymentBucket, "true"]
+
+Resources:
+  # ====================
+  # IAM Roles
+  # ====================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt ClientsTable.Arn
+                  - !GetAtt FundsTable.Arn
+                  - !GetAtt SubscriptionsTable.Arn
+                  - !GetAtt TransactionsTable.Arn
+                  - !Join 
+                    - ''
+                    - - !GetAtt TransactionsTable.Arn
+                      - '/index/*'
+
+  # ====================
+  # DynamoDB Tables
+  # ====================
+  ClientsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'ElCliente-Clients-${Stage}'
+      BillingMode: PAY_PER_REQUEST  # Para mantener costos bajos
+      AttributeDefinitions:
+        - AttributeName: clientId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: clientId
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true  # Cifrado por defecto
+
+  FundsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'ElCliente-Funds-${Stage}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: fundId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: fundId
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+
+  SubscriptionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'ElCliente-Subscriptions-${Stage}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: clientId
+          AttributeType: S
+        - AttributeName: fundId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: clientId
+          KeyType: HASH
+        - AttributeName: fundId
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+
+  TransactionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'ElCliente-Transactions-${Stage}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: clientId
+          AttributeType: S
+        - AttributeName: transactionId
+          AttributeType: S
+        - AttributeName: transactionDate
+          AttributeType: S
+      KeySchema:
+        - AttributeName: clientId
+          KeyType: HASH
+        - AttributeName: transactionId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: TransactionsByDate
+          KeySchema:
+            - AttributeName: clientId
+              KeyType: HASH
+            - AttributeName: transactionDate
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      SSESpecification:
+        SSEEnabled: true
+
+  # ====================
+  # AWS Lambda
+  # ====================
+  BackendFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LambdaExecutionRole
+    Properties:
+      FunctionName: !Sub 'ElCliente-Backend-${Stage}'
+      Runtime: python3.9
+      Handler: lambda_handler.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Sub 'elcliente-deployment-${AWS::AccountId}-${AWS::Region}'
+        S3Key: backend/lambda-package.zip
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          DEFAULT_CLIENT_ID: "C123456"
+          CLIENTS_TABLE_NAME: !Ref ClientsTable
+          FUNDS_TABLE_NAME: !Ref FundsTable
+          SUBSCRIPTIONS_TABLE_NAME: !Ref SubscriptionsTable
+          TRANSACTIONS_TABLE_NAME: !Ref TransactionsTable
+          
+  # ====================
+  # API Gateway
+  # ====================
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub 'ElCliente-API-${Stage}'
+      Description: API para gestión de fondos de EL CLIENTE
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  ApiGatewayRootMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !GetAtt ApiGateway.RootResourceId
+      HttpMethod: ANY
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BackendFunction.Arn}/invocations
+
+  ApiGatewayProxyResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: '{proxy+}'
+
+  ApiGatewayProxyMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ApiGatewayProxyResource
+      HttpMethod: ANY
+      AuthorizationType: NONE
+      RequestParameters:
+        method.request.path.proxy: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BackendFunction.Arn}/invocations
+        PassthroughBehavior: WHEN_NO_MATCH
+        ContentHandling: CONVERT_TO_TEXT
+        IntegrationResponses:
+          - StatusCode: '200'
+
+  # Permiso para que API Gateway invoque Lambda
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BackendFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*
+
+  # Despliegue de API Gateway
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiGatewayRootMethod
+      - ApiGatewayProxyMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: !Ref Stage
+
+  # ====================
+  # S3 & CloudFront
+  # ====================
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    Condition: ShouldCreateDeploymentBucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub 'elcliente-deployment-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+
+  # Bucket S3 para el frontend (ahora privado)
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'elcliente-frontend-${AWS::AccountId}-${Stage}'
+      # Se elimina WebsiteConfiguration para evitar problemas con Block Public Access
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+
+  # OAI para CloudFront
+  CloudFrontOriginAccessIdentity:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'OAI for ElCliente frontend bucket'
+
+  # Política de bucket que permite acceso solo a través de CloudFront OAI
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'AllowCloudFrontAccessOnly'
+            Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
+            Action: 's3:GetObject'
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+
+  # Distribución CloudFront con OAI
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          Compress: true
+          DefaultTTL: 86400
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+  # ====================
+  # DynamoDB Initialization Lambda
+  # ====================
+  InitializationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'ElCliente-Initialization-${Stage}'
+      Runtime: python3.9
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          from decimal import Decimal
+          import time
+          
+          def handler(event, context):
+              # Solo inicializar en creación o actualización
+              if event['RequestType'] not in ['Create', 'Update']:
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                  return
+              
+              try:
+                  # Obtener nombres de tablas desde propiedades
+                  clients_table = event['ResourceProperties']['ClientsTable']
+                  funds_table = event['ResourceProperties']['FundsTable']
+                  
+                  dynamodb = boto3.resource('dynamodb')
+                  
+                  # Inicializar tabla de fondos
+                  funds_data = [
+                      {
+                          'fundId': '1',
+                          'name': 'FPV_EL CLIENTE_RECAUDADORA',
+                          'category': 'FPV',
+                          'minimumAmount': Decimal('75000')
+                      },
+                      {
+                          'fundId': '2',
+                          'name': 'FPV_EL CLIENTE_ECOPETROL',
+                          'category': 'FPV',
+                          'minimumAmount': Decimal('125000')
+                      },
+                      {
+                          'fundId': '3',
+                          'name': 'DEUDAPRIVADA',
+                          'category': 'FIC',
+                          'minimumAmount': Decimal('50000')
+                      },
+                      {
+                          'fundId': '4',
+                          'name': 'FDO-ACCIONES',
+                          'category': 'FIC',
+                          'minimumAmount': Decimal('250000')
+                      },
+                      {
+                          'fundId': '5',
+                          'name': 'FPV_EL CLIENTE_DINAMICA',
+                          'category': 'FPV',
+                          'minimumAmount': Decimal('100000')
+                      }
+                  ]
+                  
+                  table = dynamodb.Table(funds_table)
+                  for fund in funds_data:
+                      table.put_item(Item=fund)
+                  
+                  # Crear cliente default
+                  table = dynamodb.Table(clients_table)
+                  table.put_item(
+                      Item={
+                          'clientId': 'C123456',
+                          'balance': Decimal('500000'),
+                          'preferredNotification': 'email',
+                          'email': 'cliente@ejemplo.com',
+                          'phone': '+573001234567'
+                      }
+                  )
+                  
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                      'Message': 'Initialization completed successfully'
+                  })
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {
+                      'Error': str(e)
+                  })
+      MemorySize: 128
+      Timeout: 60
+
+  InitializeDynamoDBTables:
+    Type: Custom::InitializeDynamoDBTables
+    DependsOn:
+      - ClientsTable
+      - FundsTable
+      - SubscriptionsTable
+      - TransactionsTable
+    Properties:
+      ServiceToken: !GetAtt InitializationFunction.Arn
+      ClientsTable: !Ref ClientsTable
+      FundsTable: !Ref FundsTable
+
+Outputs:
+  ApiEndpoint:
+    Description: "URL de la API Gateway"
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiEndpoint"
+  
+  CloudFrontDomain:
+    Description: "Dominio de CloudFront para el frontend"
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDomain"
+      
+  FrontendBucketName:
+    Description: "Nombre del bucket S3 para el frontend"
+    Value: !Ref FrontendBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-FrontendBucket"
