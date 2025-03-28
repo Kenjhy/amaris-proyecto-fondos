@@ -28,6 +28,8 @@ subscription_table = dynamodb.Table(settings.SUBSCRIPTIONS_TABLE_NAME)
 
 # Función auxiliar para convertir tipos para DynamoDB
 def convert_types_for_dynamodb(obj):
+    from datetime import datetime
+    
     if isinstance(obj, dict):
         return {k: convert_types_for_dynamodb(v) for k, v in obj.items()}
     elif isinstance(obj, list):

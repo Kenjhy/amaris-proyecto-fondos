@@ -9,7 +9,6 @@
     "@mui/material": "^5.17.1",
     "@reduxjs/toolkit": "^2.6.1",
     "@testing-library/dom": "^10.4.0",
-    "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.8.4",
@@ -23,10 +22,8 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "test": "jest --config=jest.config.js --watchAll=false --no-watchman",
+    "test:watch": "jest --config=jest.config.js --watchAll --no-watchman"
   },
   "eslintConfig": {
     "extends": [
@@ -45,5 +42,14 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.10",
+    "@babel/preset-env": "^7.26.9",
+    "@babel/preset-react": "^7.26.3",
+    "@testing-library/jest-dom": "^5.16.5",
+    "babel-jest": "^29.7.0",
+    "jest": "^27.5.1",
+    "jest-environment-jsdom": "^29.4.3"
   }
 }
