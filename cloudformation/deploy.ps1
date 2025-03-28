@@ -76,6 +76,7 @@ try {
 # Crear directorio de despliegue si no existe
 New-Item -ItemType Directory -Force -Path ..\deployment\backend | Out-Null
 New-Item -ItemType Directory -Force -Path ..\deployment\frontend | Out-Null
+New-Item -ItemType Directory -Force -Path ..\deployment\layers | Out-Null
 
 # Paso 1: Verificando bucket de despliegue...
 Write-ColorOutput Yellow "Paso 1: Verificando bucket de despliegue..."
@@ -119,9 +120,9 @@ catch {
     }
 }
 
-# Paso 2: Empaquetar el backend
+# Paso 2: Empaquetar el backend usando el nuevo script que genera la layer
 Write-ColorOutput Yellow "Paso 2: Empaquetando backend..."
-& .\backend-build.ps1
+& .\backend-build-fixed.ps1
 
 # Paso 3: Empaquetar el frontend
 Write-ColorOutput Yellow "Paso 3: Construyendo frontend..."
@@ -130,6 +131,8 @@ Write-ColorOutput Yellow "Paso 3: Construyendo frontend..."
 # Paso 4: Subir paquetes al bucket S3
 Write-ColorOutput Yellow "Paso 4: Subiendo paquetes a S3..."
 $backendPackagePath = "..\deployment\backend\lambda-package.zip"
+$layerPackagePath = "..\deployment\layers\python-dependencies.zip"
+
 if (Test-Path $backendPackagePath) {
     Write-Output "Subiendo paquete Lambda..."
     try {
@@ -146,6 +149,22 @@ if (Test-Path $backendPackagePath) {
 }
 else {
     Write-ColorOutput Red "Error: No se encuentra el archivo $backendPackagePath"
+    exit 1
+}
+
+if (Test-Path $layerPackagePath) {
+    Write-Output "Subiendo Layer de dependencias..."
+    try {
+        aws s3 cp $layerPackagePath s3://$DEPLOYMENT_BUCKET/layers/python-dependencies.zip
+        Write-ColorOutput Green "Layer de dependencias subido correctamente."
+    }
+    catch {
+        Write-ColorOutput Red "Error al subir layer de dependencias: $_"
+        exit 1
+    }
+}
+else {
+    Write-ColorOutput Red "Error: No se encuentra el archivo $layerPackagePath"
     exit 1
 }
 

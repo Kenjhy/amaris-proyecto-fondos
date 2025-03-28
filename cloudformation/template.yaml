@@ -138,12 +138,28 @@ Resources:
         SSEEnabled: true
 
   # ====================
+  # Lambda Layer para dependencias
+  # ====================
+  PythonDependenciesLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub 'ElCliente-Dependencies-${Stage}'
+      Description: 'Dependencies for ElCliente application'
+      Content:
+        S3Bucket: !Sub 'elcliente-deployment-${AWS::AccountId}-${AWS::Region}'
+        S3Key: layers/python-dependencies.zip
+      CompatibleRuntimes:
+        - python3.9
+      LicenseInfo: 'MIT'
+
+  # ====================
   # AWS Lambda
   # ====================
   BackendFunction:
     Type: AWS::Lambda::Function
     DependsOn:
       - LambdaExecutionRole
+      - PythonDependenciesLayer
     Properties:
       FunctionName: !Sub 'ElCliente-Backend-${Stage}'
       Runtime: python3.9
@@ -152,6 +168,8 @@ Resources:
       Code:
         S3Bucket: !Sub 'elcliente-deployment-${AWS::AccountId}-${AWS::Region}'
         S3Key: backend/lambda-package.zip
+      Layers:
+        - !Ref PythonDependenciesLayer
       MemorySize: 256
       Timeout: 30
       Environment:

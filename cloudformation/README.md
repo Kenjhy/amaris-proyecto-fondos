@@ -36,7 +36,7 @@ aws cloudformation describe-stack-events --stack-name ElCliente-Stack
 aws cloudformation describe-stack-events --stack-name ElCliente-Stack | findstr CREATE_FAILED
 
 
-# Eerror
+# Eerror celar
 
 aws cloudformation delete-stack --stack-name ElCliente-Stack
 aws cloudformation wait stack-delete-complete --stack-name ElCliente-Stack
@@ -92,3 +92,39 @@ aws dynamodb scan --table-name ElCliente-Funds-prod --limit 5
  aws dynamodb scan --table-name ElCliente-Clients-prod --limit 1
 aws dynamodb get-item --table-name ElCliente-Clients-prod --key '{"clientId":{"S":"C123456"}}'
     aws dynamodb scan --table-name ElCliente-Funds-prod
+
+
+
+# 
+
+Empaqueta el backend nuevamente:
+powershellCopiar# Desde la carpeta cloudformation
+.\backend-build-fixed.ps1
+
+Sube el paquete a S3:
+powershellCopiar$ACCOUNT_ID = (aws sts get-caller-identity --query Account --output text)
+$REGION = "us-east-1"
+$DEPLOYMENT_BUCKET = "elcliente-deployment-${ACCOUNT_ID}-${REGION}"
+
+aws s3 cp ..\deployment\backend\lambda-package.zip s3://$DEPLOYMENT_BUCKET/backend/lambda-package.zip
+
+Actualiza la función Lambda:
+powershellCopiaraws lambda update-function-configuration --function-name ElCliente-Backend-prod --environment "Variables={CLIENTS_TABLE_NAME=ElCliente-Clients-prod,FUNDS_TABLE_NAME=ElCliente-Funds-prod,SUBSCRIPTIONS_TABLE_NAME=ElCliente-Subscriptions-prod,TRANSACTIONS_TABLE_NAME=ElCliente-Transactions-prod}"
+
+aws lambda update-function-code --function-name ElCliente-Backend-prod --s3-bucket $DEPLOYMENT_BUCKET --s3-key backend/lambda-package.zip
+
+Crea un nuevo despliegue en API Gateway para aplicar los cambios:
+powershellCopiar# Obtén el ID de tu API Gateway
+$API_ID = "85icyuszth"  # Este es el ID que aparece en tu URL
+
+# Crea un nuevo despliegue
+aws apigateway create-deployment --rest-api-id $API_ID --stage-name prod
+
+Limpia la caché de CloudFront (opcional, si los cambios no se reflejan inmediatamente):
+powershellCopiar# Obtén el ID de distribución
+$DISTRIBUTION_ID = (aws cloudfront list-distributions --query "DistributionList.Items[?DomainName=='d9rsztvtxxjwr.cloudfront.net'].Id" --output text)
+
+# Crea una invalidación
+aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*"
+
+

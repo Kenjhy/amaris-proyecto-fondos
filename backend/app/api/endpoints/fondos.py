@@ -5,7 +5,7 @@ from app.services.fondo_service import FondoService
 
 router = APIRouter()
 
-@router.get("/", response_model=List[dict])
+@router.get("", response_model=List[dict])
 async def get_all_funds():
     """Obtiene todos los fondos disponibles"""
     return await FondoService.get_all_funds()
