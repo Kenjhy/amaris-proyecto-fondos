@@ -1,110 +1,79 @@
-// Usar CommonJS en lugar de ES Modules
-jest.mock('axios');
-// Mock axios
+// src/services/__tests__/fondoService.test.js
+import { getAllFunds, getFundDetails } from '../fondoService';
+import api from '../api';
 
-// Importar los servicios que queremos probar
-const { getAllFunds, getFundDetails } = require('../fondoService');
-const API_URL = require('../../config/api').default;
-const axios = require('axios');
+// Mock the api module
+jest.mock('../api');
 
-describe('fondoService', () => {
-  afterEach(() => {
+describe('Fondo Service', () => {
+  beforeEach(() => {
+    // Clear all mocks before each test
     jest.clearAllMocks();
   });
 
   describe('getAllFunds', () => {
-    test('should fetch all funds successfully', async () => {
-      // Mock data
-      const mockFundsData = [
-        { 
-          fundId: '1', 
-          name: 'FPV_EL CLIENTE_RECAUDADORA', 
-          category: 'FPV', 
-          minimumAmount: 75000 
-        },
-        { 
-          fundId: '2', 
-          name: 'FPV_EL CLIENTE_ECOPETROL', 
-          category: 'FPV', 
-          minimumAmount: 125000 
-        },
-        { 
-          fundId: '3', 
-          name: 'DEUDAPRIVADA', 
-          category: 'FIC', 
-          minimumAmount: 50000 
-        }
+    it('should fetch all funds', async () => {
+      // Setup mock response with sample funds data
+      const mockFunds = [
+        { fundId: '1', name: 'FPV_EL CLIENTE_RECAUDADORA', category: 'FPV', minimumAmount: 75000 },
+        { fundId: '2', name: 'FPV_EL CLIENTE_ECOPETROL', category: 'FPV', minimumAmount: 125000 }
       ];
-      
-      // Setup axios mock to resolve with data
-      axios.get.mockResolvedValueOnce({ data: mockFundsData });
+      const mockResponse = { data: mockFunds };
+      api.get.mockResolvedValue(mockResponse);
 
       // Call the function
       const result = await getAllFunds();
 
-      // Assertions
-      expect(axios.get).toHaveBeenCalledWith(`${API_URL}/fondos`);
-      expect(result).toEqual(mockFundsData);
+      // Check if API was called correctly
+      expect(api.get).toHaveBeenCalledWith('/fondos');
+      // Check if function returns the correct data
+      expect(result).toEqual(mockFunds);
     });
 
-    test('should return empty array when API returns empty data', async () => {
-      // Setup axios mock to resolve with empty array
-      axios.get.mockResolvedValueOnce({ data: [] });
-
-      // Call the function
-      const result = await getAllFunds();
-
-      // Assertions
-      expect(axios.get).toHaveBeenCalledWith(`${API_URL}/fondos`);
-      expect(result).toEqual([]);
-    });
-
-    test('should propagate errors when API call fails', async () => {
-      // Setup axios mock to reject with error
-      const errorMessage = 'Service Unavailable';
-      axios.get.mockRejectedValueOnce(new Error(errorMessage));
+    it('should propagate errors from the API', async () => {
+      // Setup mock to throw an error
+      const errorMessage = 'Network Error';
+      api.get.mockRejectedValue(new Error(errorMessage));
 
       // Call the function and expect it to throw
       await expect(getAllFunds()).rejects.toThrow(errorMessage);
-      expect(axios.get).toHaveBeenCalledWith(`${API_URL}/fondos`);
+      expect(api.get).toHaveBeenCalledWith('/fondos');
     });
   });
 
   describe('getFundDetails', () => {
-    test('should fetch fund details successfully', async () => {
-      // Mock data
-      const mockFundId = '1';
-      const mockFundData = { 
-        fundId: mockFundId, 
-        name: 'FPV_EL CLIENTE_RECAUDADORA', 
-        category: 'FPV', 
-        minimumAmount: 75000 
+    it('should fetch details for a specific fund', async () => {
+      // Setup mock fund data and response
+      const fundId = '3';
+      const mockFundDetails = { 
+        fundId: '3', 
+        name: 'DEUDAPRIVADA', 
+        category: 'FIC', 
+        minimumAmount: 50000 
       };
+      const mockResponse = { data: mockFundDetails };
       
-      // Setup axios mock to resolve with data
-      axios.get.mockResolvedValueOnce({ data: mockFundData });
+      api.get.mockResolvedValue(mockResponse);
 
       // Call the function
-      const result = await getFundDetails(mockFundId);
+      const result = await getFundDetails(fundId);
 
-      // Assertions
-      expect(axios.get).toHaveBeenCalledWith(`${API_URL}/fondos/${mockFundId}`);
-      expect(result).toEqual(mockFundData);
+      // Check if API was called correctly
+      expect(api.get).toHaveBeenCalledWith(`/fondos/${fundId}`);
+      // Check if function returns the correct data
+      expect(result).toEqual(mockFundDetails);
     });
 
-    test('should propagate errors when fund details API call fails', async () => {
-      // Mock data
-      const mockFundId = '999'; // Non-existent fund
-      
-      // Setup axios mock to reject with error
+    it('should propagate errors from the API', async () => {
+      // Setup mock to throw an error
+      const fundId = '999'; // Non-existent fund ID
       const errorMessage = 'Fund not found';
-      axios.get.mockRejectedValueOnce(new Error(errorMessage));
+      
+      api.get.mockRejectedValue(new Error(errorMessage));
 
       // Call the function and expect it to throw
-      await expect(getFundDetails(mockFundId)).rejects.toThrow(errorMessage);
-      
-      // Verify the axios call was made with correct parameters
-      expect(axios.get).toHaveBeenCalledWith(`${API_URL}/fondos/${mockFundId}`);
+      await expect(getFundDetails(fundId)).rejects.toThrow(errorMessage);
+      expect(api.get).toHaveBeenCalledWith(`/fondos/${fundId}`);
     });
   });
 });

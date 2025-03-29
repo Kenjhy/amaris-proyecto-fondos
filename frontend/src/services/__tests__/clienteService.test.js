@@ -1,117 +1,93 @@
-// Usar CommonJS en lugar de ES Modules
-jest.mock('axios');
+// src/services/__tests__/clienteService.test.js
+import { getClientInfo, updateClientPreferences } from '../clienteService';
+import api from '../api';
 
-// Mock axios
+// Mock the api module
+jest.mock('../api');
 
-// Importar los servicios que queremos probar
-const { getClientInfo, updateClientPreferences } = require('../clienteService');
-const API_URL = require('../../config/api').default;
-
-const axios = require('axios');
-
-describe('clienteService', () => {
-  afterEach(() => {
+describe('Cliente Service', () => {
+  beforeEach(() => {
+    // Clear all mocks before each test
     jest.clearAllMocks();
   });
 
   describe('getClientInfo', () => {
-    test('should fetch client info successfully', async () => {
-      // Mock data
-      const mockClientData = { 
-        clientId: 'C123456', 
-        balance: 500000, 
-        preferredNotification: 'email',
-        email: 'test@example.com' 
-      };
-      
-      // Setup axios mock to resolve with data
-      axios.get.mockResolvedValueOnce({ data: mockClientData });
+    it('should fetch client info with default ID if none provided', async () => {
+      // Setup mock response
+      const mockResponse = { data: { clientId: 'C123456', balance: 500000 } };
+      api.get.mockResolvedValue(mockResponse);
 
       // Call the function
       const result = await getClientInfo();
 
-      // Assertions
-      expect(axios.get).toHaveBeenCalledWith(`${API_URL}/clientes/C123456`);
-      expect(result).toEqual(mockClientData);
+      // Check if API was called correctly
+      expect(api.get).toHaveBeenCalledWith('/clientes/C123456');
+      // Check if function returns the correct data
+      expect(result).toEqual(mockResponse.data);
     });
 
-    test('should fetch client info with provided client ID', async () => {
-      // Mock data
-      const mockClientId = 'C654321';
-      const mockClientData = { 
-        clientId: mockClientId, 
-        balance: 750000, 
-        preferredNotification: 'sms',
-        phone: '+1234567890' 
-      };
-      
-      // Setup axios mock to resolve with data
-      axios.get.mockResolvedValueOnce({ data: mockClientData });
+    it('should fetch client info with provided ID', async () => {
+      // Setup mock response
+      const mockResponse = { data: { clientId: 'C654321', balance: 750000 } };
+      api.get.mockResolvedValue(mockResponse);
 
       // Call the function with a specific client ID
-      const result = await getClientInfo(mockClientId);
+      const result = await getClientInfo('C654321');
 
-      // Assertions
-      expect(axios.get).toHaveBeenCalledWith(`${API_URL}/clientes/${mockClientId}`);
-      expect(result).toEqual(mockClientData);
+      // Check if API was called correctly
+      expect(api.get).toHaveBeenCalledWith('/clientes/C654321');
+      // Check if function returns the correct data
+      expect(result).toEqual(mockResponse.data);
     });
 
-    test('should propagate errors when API call fails', async () => {
-      // Setup axios mock to reject with error
+    it('should propagate errors from the API', async () => {
+      // Setup mock to throw an error
       const errorMessage = 'Network Error';
-      axios.get.mockRejectedValueOnce(new Error(errorMessage));
+      api.get.mockRejectedValue(new Error(errorMessage));
 
       // Call the function and expect it to throw
       await expect(getClientInfo()).rejects.toThrow(errorMessage);
-      expect(axios.get).toHaveBeenCalledWith(`${API_URL}/clientes/C123456`);
+      expect(api.get).toHaveBeenCalledWith('/clientes/C123456');
     });
   });
 
   describe('updateClientPreferences', () => {
-    test('should update client preferences successfully', async () => {
-      // Mock data
-      const mockClientId = 'C123456';
-      const mockUpdateData = { 
-        preferredNotification: 'sms',
-        phone: '+1234567890' 
+    it('should update client preferences', async () => {
+      // Setup mock data and response
+      const clientId = 'C123456';
+      const updateData = { 
+        preferredNotification: 'email',
+        email: 'test@example.com' 
       };
       const mockResponse = { 
-        preferredNotification: 'sms',
-        phone: '+1234567890' 
+        data: { 
+          preferredNotification: 'email',
+          email: 'test@example.com' 
+        } 
       };
       
-      // Setup axios mock to resolve with data
-      axios.patch.mockResolvedValueOnce({ data: mockResponse });
+      api.patch.mockResolvedValue(mockResponse);
 
       // Call the function
-      const result = await updateClientPreferences(mockClientId, mockUpdateData);
+      const result = await updateClientPreferences(clientId, updateData);
 
-      // Assertions
-      expect(axios.patch).toHaveBeenCalledWith(
-        `${API_URL}/clientes/${mockClientId}`, 
-        mockUpdateData
-      );
-      expect(result).toEqual(mockResponse);
+      // Check if API was called correctly
+      expect(api.patch).toHaveBeenCalledWith(`/clientes/${clientId}`, updateData);
+      // Check if function returns the correct data
+      expect(result).toEqual(mockResponse.data);
     });
 
-    test('should propagate errors when update API call fails', async () => {
-      // Mock data
-      const mockClientId = 'C123456';
-      const mockUpdateData = { preferredNotification: 'email' };
+    it('should propagate errors from the API', async () => {
+      // Setup data and mock to throw an error
+      const clientId = 'C123456';
+      const updateData = { preferredNotification: 'sms' };
+      const errorMessage = 'Server Error';
       
-      // Setup axios mock to reject with error
-      const errorMessage = 'Bad Request';
-      axios.patch.mockRejectedValueOnce(new Error(errorMessage));
+      api.patch.mockRejectedValue(new Error(errorMessage));
 
       // Call the function and expect it to throw
-      await expect(updateClientPreferences(mockClientId, mockUpdateData))
-        .rejects.toThrow(errorMessage);
-      
-      // Verify the axios call was made with correct parameters
-      expect(axios.patch).toHaveBeenCalledWith(
-        `${API_URL}/clientes/${mockClientId}`, 
-        mockUpdateData
-      );
+      await expect(updateClientPreferences(clientId, updateData)).rejects.toThrow(errorMessage);
+      expect(api.patch).toHaveBeenCalledWith(`/clientes/${clientId}`, updateData);
     });
   });
 });
